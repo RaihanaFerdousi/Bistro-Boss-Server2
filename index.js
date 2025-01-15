@@ -49,49 +49,87 @@ async function run() {
 
     // middlewares
     const verifyToken = (req, res, next) => {
-      console.log('lalal', req.headers);
-      if(!req.headers.authorization){
-        return res.status(401).send({messasge: 'forbidden access'});
+      // console.log("lalal", req.headers);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ messasge: "forbidden access" });
       }
-      const token = req.headers.authorization.split(' ')[1];
+      const token = req.headers.authorization.split(" ")[1];
       jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-        if(err){
-          return res.status(401).send({messasge: 'forbidden access'})
+        if (err) {
+          return res.status(401).send({ messasge: "forbidden access" });
         }
         req.decoded = decoded;
         next();
-      })
-    }
+      });
+    };
 
-    app.get("/users", verifyToken, async (req, res) => {
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
 
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
 
-    app.delete("/users/:id", async (req, res) => {
+    app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await userCollection.deleteOne(query);
       res.send(result);
     });
 
-    app.patch("/users/admin/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: "admin",
-        },
-      };
-      const result = await userCollection.updateOne(filter, updatedDoc);
-      res.send(result);
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === "admin";
+      }
+      res.send({ admin });
     });
+
+    app.patch(
+      "/users/admin/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: "admin",
+          },
+        };
+        const result = await userCollection.updateOne(filter, updatedDoc);
+        res.send(result);
+      }
+    );
 
     app.get("/menu", async (req, res) => {
       const result = await menuCollection.find().toArray();
       res.send(result);
     });
+
+    app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+      const menuItem = req.body;
+      const result = await menuCollection.insertOne(menuItem);
+      res.send(result);
+    });
+    
 
     app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection.find().toArray();
@@ -135,5 +173,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(port, (req, res) => {
-  console.log(`Bistro Boss engines are running on ${port}}`);
+  console.log(`Bistro Boss engines are running on ${port}`);
 });
