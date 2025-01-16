@@ -1,10 +1,10 @@
 const express = require("express");
-const { MongoClient } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const cors = require("cors");
-const { ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const stripe = require("stripe");
 const port = process.env.PORT || 5000;
 
 app.use(cors());
@@ -13,9 +13,11 @@ app.use(express.json());
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@programming-hero.jstug.mongodb.net/?retryWrites=true&w=majority&appName=Programming-hero`;
 
 const client = new MongoClient(uri, {
-  tls: true,
-  serverSelectionTimeoutMS: 3000,
-  autoSelectFamily: false,
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
 });
 
 async function run() {
@@ -124,19 +126,25 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollection.findOne(query);
+      res.send(result);
+    });
+
     app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
       const menuItem = req.body;
       const result = await menuCollection.insertOne(menuItem);
       res.send(result);
     });
 
-    app.delete("/menu/:id", verifyToken,verifyAdmin, async (req, res) => {
+    app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await menuCollection.deleteOne(query);
       res.send(result);
-    })
-    
+    });
 
     app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection.find().toArray();
@@ -161,6 +169,21 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const result = await cartCollection.deleteOne(query);
       res.send(result);
+    });
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+
+      const paymentIntent = stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret
+      })
     });
 
     // Send a ping to confirm a successful connection
