@@ -4,7 +4,7 @@ const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const stripe = require("stripe");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 app.use(cors());
@@ -17,7 +17,7 @@ const client = new MongoClient(uri, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
@@ -29,6 +29,7 @@ async function run() {
     const userCollection = client.db("bistroDB").collection("users");
     const reviewsCollection = client.db("bistroDB").collection("reviews");
     const cartCollection = client.db("bistroDB").collection("carts");
+    const paymentCollection = client.db("bistroDB").collection("payments");
 
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -173,17 +174,41 @@ async function run() {
 
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
+
+      if (!price || isNaN(price)) {
+        return res.status(400).send({ error: "Invalid price" });
+      }
+
       const amount = parseInt(price * 100);
 
-      const paymentIntent = stripe.paymentIntents.create({
-        amount: amount,
-        currency: "usd",
-        payment_method_types: ["card"],
-      });
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
 
-      res.send({
-        clientSecret: paymentIntent.client_secret,
-      });
+        console.log("Payment Intent Created:", paymentIntent.client_secret); // Log the client secret
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        console.error("Stripe Error:", error);
+        res.status(500).send({ error: "Failed to create payment intent" });
+      }
+    });
+
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollection.insertOne(payment);
+
+      const query = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
+
+      const deleteResult = await cartCollection.deleteMany(query)
+
+      res.send({paymentResult, deleteResult});
     });
 
     // Send a ping to confirm a successful connection
